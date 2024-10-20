@@ -154,10 +154,10 @@
 
             additionalCargoLock = "${skyline-rust-src}/lib/rustlib/src/rust/Cargo.lock";
 
-            cargoBuildOptions = old: old ++ [
+            cargoBuildOptions = old: pkgs.lib.unique (old ++ [
               "-Z"
               "build-std=core,alloc,std,panic_abort"
-            ];
+            ] ++ (pkgs.lib.optionals (args ? cargoBuildOptions) (args.cargoBuildOptions old)));
 
             copyLibs = true;
             copyBins = false;
