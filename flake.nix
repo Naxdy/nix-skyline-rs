@@ -144,13 +144,15 @@
         { pname
         , version
         , src
+        , copyLibs ? true
         , ...
         }@args: naersk_skyline.buildPackage
           ({
             inherit
               pname
               version
-              src;
+              src
+              copyLibs;
 
             additionalCargoLock = "${skyline-rust-src}/lib/rustlib/src/rust/Cargo.lock";
 
@@ -159,7 +161,6 @@
               "build-std=core,alloc,std,panic_abort"
             ]);
 
-            copyLibs = true;
             copyBins = false;
 
             gitSubmodules = true;
@@ -170,18 +171,19 @@
             } // (builtins.removeAttrs (args.env or { }) [ "CARGO_BUILD_TARGET" "SKYLINE_ADD_NRO_HEADER" ]);
 
             overrideMain = old: ((args.overrideMain or (old: old)) (old // {
-              postInstall = (if (old ? postInstall) && (old.postInstall != false) then old.postInstall else "") + ''
+              postInstall = (if (old ? postInstall) && (old.postInstall != false) then old.postInstall else "") + (pkgs.lib.optionalString copyLibs ''
                 cd $out/lib
                 for f in *.so; do
                   ${self.packages.${system}.linkle}/bin/linkle nro $f ''${f%.so}.nro
                   rm $f
                 done
-              '';
+              '');
             }));
           } // (builtins.removeAttrs args [
             "pname"
             "version"
             "src"
+            "copyLibs"
             "additionalCargoLock"
             "cargoBuildOptions"
             "gitSubmodules"
