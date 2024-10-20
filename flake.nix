@@ -146,7 +146,7 @@
         , src
         , ...
         }@args: naersk_skyline.buildPackage
-          {
+          ({
             inherit
               pname
               version
@@ -179,15 +179,15 @@
               '';
             }));
           } // (builtins.removeAttrs args [
-          "pname"
-          "version"
-          "src"
-          "additionalCargoLock"
-          "cargoBuildOptions"
-          "gitSubmodules"
-          "env"
-          "overrideMain"
-        ]);
+            "pname"
+            "version"
+            "src"
+            "additionalCargoLock"
+            "cargoBuildOptions"
+            "gitSubmodules"
+            "env"
+            "overrideMain"
+          ]));
 
       devShells.default = pkgs.mkShell {
         nativeBuildInputs = builtins.attrValues {
