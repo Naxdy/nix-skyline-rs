@@ -169,15 +169,15 @@
               SKYLINE_ADD_NRO_HEADER = "1";
             } // (builtins.removeAttrs (args.env or { }) [ "CARGO_BUILD_TARGET" "SKYLINE_ADD_NRO_HEADER" ]);
 
-            overrideMain = old: ({
-              postInstall = ''
+            overrideMain = old: ((args.overrideMain or (old: old)) (old // {
+              postInstall = (if (old ? postInstall) && (old.postInstall != false) then old.postInstall else "") + ''
                 cd $out/lib
                 for f in *.so; do
                   ${self.packages.${system}.linkle}/bin/linkle nro $f ''${f%.so}.nro
                   rm $f
                 done
               '';
-            } // (args.overrideMain or (old: { })) old);
+            }));
           } // (builtins.removeAttrs args [
           "pname"
           "version"
