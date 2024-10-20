@@ -144,6 +144,7 @@
         { pname
         , version
         , src
+        , ...
         }@args: naersk_skyline.buildPackage
           {
             inherit
