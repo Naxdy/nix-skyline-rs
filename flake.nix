@@ -184,8 +184,6 @@
           "src"
           "additionalCargoLock"
           "cargoBuildOptions"
-          "copyLibs"
-          "copyBins"
           "gitSubmodules"
           "env"
           "overrideMain"
