@@ -4,8 +4,6 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-24.05";
 
-    flake-utils.url = "github:numtide/flake-utils";
-
     cargo-skyline-src = {
       url = "github:jam1garner/cargo-skyline";
       flake = false;
@@ -22,97 +20,120 @@
 
   outputs =
     {
-      self,
-      nixpkgs,
-      flake-utils,
-      fenix,
-      naersk,
-      linkle-src,
       cargo-skyline-src,
+      fenix,
+      linkle-src,
+      naersk,
+      nixpkgs,
+      self,
     }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [
-            fenix.overlays.default
-          ];
-        };
+    let
+      supportedSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
 
-        skyline-rust-src =
-          pkgs.runCommandLocal "skyline-rust-src"
-            {
-              src = pkgs.fetchFromGitHub {
-                owner = "skyline-rs";
-                repo = "rust-src";
-                rev = "3b1dd4aca19b5dca6e90a3de457304f013d7bc77";
-                hash = "sha256-aXmyW7pVSar31r9nm+WvmKQcoXI5Ht3ZEnB3yWbnxJY=";
-                fetchSubmodules = true;
-              };
-            }
-            ''
-              mkdir -p $out/lib/rustlib/src/
-              cp -r $src $out/lib/rustlib/src/rust
-            '';
+      forEachSupportedSystem =
+        f:
+        nixpkgs.lib.genAttrs supportedSystems (
+          system:
+          let
+            pkgs = import nixpkgs {
+              inherit system;
+              overlays = [
+                fenix.overlays.default
+              ];
+            };
 
-        skylineBaseToolchain = pkgs.fenix.toolchainOf {
-          channel = "nightly";
-          date = "2023-12-30";
-          sha256 = "sha256-6ro0E+jXO1vkfTTewwzJu9NrMf/b9JWJyU8NaEV5rds=";
-        };
+            skyline-rust-src =
+              pkgs.runCommandLocal "skyline-rust-src"
+                {
+                  src = pkgs.fetchFromGitHub {
+                    owner = "skyline-rs";
+                    repo = "rust-src";
+                    rev = "3b1dd4aca19b5dca6e90a3de457304f013d7bc77";
+                    hash = "sha256-aXmyW7pVSar31r9nm+WvmKQcoXI5Ht3ZEnB3yWbnxJY=";
+                    fetchSubmodules = true;
+                  };
+                }
+                ''
+                  mkdir -p $out/lib/rustlib/src/
+                  cp -r $src $out/lib/rustlib/src/rust
+                '';
 
-        skylineToolchain = fenix.packages.${system}.combine (
-          (builtins.attrValues {
-            inherit (skylineBaseToolchain)
-              cargo
-              clippy
-              rustc
-              rustfmt
+            skylineBaseToolchain = pkgs.fenix.toolchainOf {
+              channel = "nightly";
+              date = "2023-12-30";
+              sha256 = "sha256-6ro0E+jXO1vkfTTewwzJu9NrMf/b9JWJyU8NaEV5rds=";
+            };
+
+            skylineToolchain = pkgs.fenix.combine (
+              (builtins.attrValues {
+                inherit (skylineBaseToolchain)
+                  cargo
+                  clippy
+                  rustc
+                  rustfmt
+                  ;
+              })
+              ++ [
+                skyline-rust-src
+              ]
+            );
+
+            stableToolchain = pkgs.fenix.stable.withComponents [
+              "cargo"
+              "rustc"
+            ];
+
+            naersk_skyline = naersk.lib.${system}.override {
+              cargo = skylineToolchain;
+              rustc = skylineToolchain;
+            };
+
+            naersk_stable = naersk.lib.${system}.override {
+              cargo = stableToolchain;
+              rustc = stableToolchain;
+            };
+
+            patched-build-target =
+              pkgs.runCommandLocal "skyline-build-target"
+                {
+                  src = pkgs.substitute {
+                    src = "${skyline-rust-src}/lib/rustlib/src/rust/aarch64-skyline-switch.json";
+                    substitutions = [
+                      "--replace-fail"
+                      "-Tlink.T"
+                      "-T${cargo-skyline-src}/src/link.T"
+                    ];
+                  };
+                }
+                ''
+                  mkdir -p $out
+                  cp $src $out/aarch64-skyline-switch.json
+                '';
+
+            CARGO_BUILD_TARGET = "${patched-build-target}/aarch64-skyline-switch.json";
+          in
+          f {
+            inherit
+              CARGO_BUILD_TARGET
+              naersk_skyline
+              naersk_stable
+              pkgs
+              skyline-rust-src
+              skylineToolchain
+              system
               ;
-          })
-          ++ [
-            skyline-rust-src
-          ]
+          }
         );
-
-        stableToolchain = pkgs.fenix.stable.withComponents [
-          "cargo"
-          "rustc"
-        ];
-
-        naersk_skyline = naersk.lib.${system}.override {
-          cargo = skylineToolchain;
-          rustc = skylineToolchain;
-        };
-
-        naersk_stable = naersk.lib.${system}.override {
-          cargo = stableToolchain;
-          rustc = stableToolchain;
-        };
-
-        patched-build-target =
-          pkgs.runCommandLocal "skyline-build-target"
-            {
-              src = pkgs.substitute {
-                src = "${skyline-rust-src}/lib/rustlib/src/rust/aarch64-skyline-switch.json";
-                substitutions = [
-                  "--replace-fail"
-                  "-Tlink.T"
-                  "-T${cargo-skyline-src}/src/link.T"
-                ];
-              };
-            }
-            ''
-              mkdir -p $out
-              cp $src $out/aarch64-skyline-switch.json
-            '';
-
-        CARGO_BUILD_TARGET = "${patched-build-target}/aarch64-skyline-switch.json";
-      in
-      {
-        packages = {
-
+    in
+    {
+      packages = forEachSupportedSystem (
+        { naersk_stable, ... }:
+        {
           cargo-skyline =
             let
               cargoTOML = (builtins.fromTOML (builtins.readFile "${cargo-skyline-src}/Cargo.toml"));
@@ -152,90 +173,113 @@
 
               meta.description = "Command line utility for working with Nintendo file formats.";
             };
-        };
+        }
+      );
 
-        lib.mkNroPackage =
-          {
-            pname,
-            version,
-            src,
-            copyLibs ? true,
-            ...
-          }@args:
-          naersk_skyline.buildPackage (
+      lib = forEachSupportedSystem (
+        {
+          CARGO_BUILD_TARGET,
+          naersk_skyline,
+          pkgs,
+          skyline-rust-src,
+          system,
+          ...
+        }:
+        {
+          mkNroPackage =
             {
-              inherit
-                pname
-                version
-                src
-                copyLibs
-                ;
+              pname,
+              version,
+              src,
+              copyLibs ? true,
+              ...
+            }@args:
+            naersk_skyline.buildPackage (
+              {
+                inherit
+                  pname
+                  version
+                  src
+                  copyLibs
+                  ;
 
-              additionalCargoLock = "${skyline-rust-src}/lib/rustlib/src/rust/Cargo.lock";
+                additionalCargoLock = "${skyline-rust-src}/lib/rustlib/src/rust/Cargo.lock";
 
-              cargoBuildOptions =
-                old:
-                (args.cargoBuildOptions or (old: old)) (
-                  old
-                  ++ [
-                    "-Z"
-                    "build-std=core,alloc,std,panic_abort"
-                  ]
-                );
+                cargoBuildOptions =
+                  old:
+                  (args.cargoBuildOptions or (old: old)) (
+                    old
+                    ++ [
+                      "-Z"
+                      "build-std=core,alloc,std,panic_abort"
+                    ]
+                  );
 
-              copyBins = false;
+                copyBins = false;
 
-              gitSubmodules = true;
+                gitSubmodules = true;
 
-              env =
-                {
-                  inherit CARGO_BUILD_TARGET;
-                  SKYLINE_ADD_NRO_HEADER = "1";
-                }
-                // (builtins.removeAttrs (args.env or { }) [
-                  "CARGO_BUILD_TARGET"
-                  "SKYLINE_ADD_NRO_HEADER"
-                ]);
-
-              overrideMain =
-                old:
-                ((args.overrideMain or (old: old)) (
-                  old
-                  // {
-                    postInstall =
-                      (if (old ? postInstall) && (old.postInstall != false) then old.postInstall else "")
-                      + (pkgs.lib.optionalString copyLibs ''
-                        cd $out/lib
-                        for f in *.so; do
-                          ${self.packages.${system}.linkle}/bin/linkle nro $f ''${f%.so}.nro
-                          rm $f
-                        done
-                      '');
+                env =
+                  {
+                    inherit CARGO_BUILD_TARGET;
+                    SKYLINE_ADD_NRO_HEADER = "1";
                   }
-                ));
-            }
-            // (builtins.removeAttrs args [
-              "pname"
-              "version"
-              "src"
-              "copyLibs"
-              "additionalCargoLock"
-              "cargoBuildOptions"
-              "gitSubmodules"
-              "env"
-              "overrideMain"
-            ])
-          );
+                  // (builtins.removeAttrs (args.env or { }) [
+                    "CARGO_BUILD_TARGET"
+                    "SKYLINE_ADD_NRO_HEADER"
+                  ]);
 
-        devShells.default = pkgs.mkShell {
-          nativeBuildInputs = builtins.attrValues {
-            inherit (pkgs) gdb python311;
-            inherit skylineToolchain;
-            inherit (self.packages.${system}) cargo-skyline;
+                overrideMain =
+                  old:
+                  ((args.overrideMain or (old: old)) (
+                    old
+                    // {
+                      postInstall =
+                        (if (old ? postInstall) && (old.postInstall != false) then old.postInstall else "")
+                        + (pkgs.lib.optionalString copyLibs ''
+                          cd $out/lib
+                          for f in *.so; do
+                            ${self.packages.${system}.linkle}/bin/linkle nro $f ''${f%.so}.nro
+                            rm $f
+                          done
+                        '');
+                    }
+                  ));
+              }
+              // (builtins.removeAttrs args [
+                "pname"
+                "version"
+                "src"
+                "copyLibs"
+                "additionalCargoLock"
+                "cargoBuildOptions"
+                "gitSubmodules"
+                "env"
+                "overrideMain"
+              ])
+            );
+        }
+      );
+
+      devShells = forEachSupportedSystem (
+        {
+          CARGO_BUILD_TARGET,
+          pkgs,
+          skylineToolchain,
+          system,
+          ...
+        }:
+        {
+          default = pkgs.mkShell {
+            nativeBuildInputs = builtins.attrValues {
+              inherit (pkgs) gdb python311;
+              inherit skylineToolchain;
+              inherit (self.packages.${system}) cargo-skyline;
+            };
+
+            inherit CARGO_BUILD_TARGET;
           };
-
-          inherit CARGO_BUILD_TARGET;
-        };
-      }
-    );
+        }
+      );
+    };
 }
