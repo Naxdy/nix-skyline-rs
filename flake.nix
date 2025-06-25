@@ -2,7 +2,7 @@
   description = "A helper flake for building SSBU mods using skyline-rs.";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-24.05";
+    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-25.05";
 
     cargo-skyline-src = {
       url = "github:jam1garner/cargo-skyline";
@@ -10,7 +10,7 @@
     };
     fenix.url = "github:nix-community/fenix";
 
-    naersk.url = "github:Naxdy/naersk?ref=work/consider-additional-cargo-lock";
+    crane.url = "github:ipetkov/crane";
 
     linkle-src = {
       url = "github:MegatonHammer/linkle";
@@ -21,9 +21,9 @@
   outputs =
     {
       cargo-skyline-src,
+      crane,
       fenix,
       linkle-src,
-      naersk,
       nixpkgs,
       self,
     }:
@@ -88,15 +88,15 @@
               "rustc"
             ];
 
-            naersk_skyline = naersk.lib.${system}.override {
-              cargo = skylineToolchain;
-              rustc = skylineToolchain;
-            };
+            craneSkylinePre = (crane.mkLib pkgs).overrideToolchain skylineToolchain;
+            craneStable = (crane.mkLib pkgs).overrideToolchain stableToolchain;
 
-            naersk_stable = naersk.lib.${system}.override {
-              cargo = stableToolchain;
-              rustc = stableToolchain;
-            };
+            craneSkyline = craneSkylinePre.appendCrateRegistries [
+              (craneSkylinePre.registryFromGitIndex {
+                indexUrl = "https://github.com/ultimate-research/libc-nnsdk";
+                rev = "da6a3d0b5916354977166b3ed8df86a0d02e327c";
+              })
+            ];
 
             patched-build-target =
               pkgs.runCommandLocal "skyline-build-target"
@@ -120,8 +120,8 @@
           f {
             inherit
               CARGO_BUILD_TARGET
-              naersk_skyline
-              naersk_stable
+              craneSkyline
+              craneStable
               pkgs
               skyline-rust-src
               skylineToolchain
@@ -132,13 +132,13 @@
     in
     {
       packages = forEachSupportedSystem (
-        { naersk_stable, ... }:
+        { craneStable, ... }:
         {
           cargo-skyline =
             let
               cargoTOML = (builtins.fromTOML (builtins.readFile "${cargo-skyline-src}/Cargo.toml"));
             in
-            naersk_stable.buildPackage {
+            craneStable.buildPackage {
               pname = cargoTOML.package.name;
               version = cargoTOML.package.version;
 
@@ -153,23 +153,13 @@
             let
               cargoTOML = builtins.fromTOML (builtins.readFile "${linkle-src}/Cargo.toml");
             in
-            naersk_stable.buildPackage {
+            craneStable.buildPackage {
               pname = cargoTOML.package.name;
               version = cargoTOML.package.version;
 
               src = linkle-src;
 
-              # https://github.com/nix-community/naersk/issues/127
-              singleStep = true;
-
-              cargoBuildOptions =
-                old:
-                old
-                ++ [
-                  "--bin"
-                  "linkle"
-                  "--features=binaries"
-                ];
+              cargoExtraArgs = "--locked --bin linkle --features=binaries";
 
               meta.description = "Command line utility for working with Nintendo file formats.";
             };
@@ -179,7 +169,7 @@
       lib = forEachSupportedSystem (
         {
           CARGO_BUILD_TARGET,
-          naersk_skyline,
+          craneSkyline,
           pkgs,
           skyline-rust-src,
           system,
@@ -194,34 +184,36 @@
               copyLibs ? true,
               ...
             }@args:
-            naersk_skyline.buildPackage (
+            craneSkyline.buildPackage (
               {
                 inherit
                   pname
                   version
-                  src
                   copyLibs
+                  src
                   ;
 
-                additionalCargoLock = "${skyline-rust-src}/lib/rustlib/src/rust/Cargo.lock";
+                cargoVendorDir = craneSkyline.vendorCargoDeps {
+                  cargoLockParsed =
+                    let
+                      skylineCargoLock = builtins.fromTOML (
+                        builtins.readFile "${skyline-rust-src}/lib/rustlib/src/rust/Cargo.lock"
+                      );
+                      ourCargoLock = builtins.fromTOML (builtins.readFile "${src}/Cargo.lock");
+                    in
+                    {
+                      inherit (ourCargoLock) version;
 
-                cargoBuildOptions =
-                  old:
-                  (args.cargoBuildOptions or (old: old)) (
-                    old
-                    ++ [
-                      "-Z"
-                      "build-std=core,alloc,std,panic_abort"
-                    ]
-                  );
+                      package = ourCargoLock.package ++ skylineCargoLock.package;
+                    };
+                };
 
-                copyBins = false;
+                cargoExtraArgs = "--offline -Z build-std=core,alloc,std,panic_abort";
 
-                gitSubmodules = true;
+                inherit CARGO_BUILD_TARGET;
 
                 env =
                   {
-                    inherit CARGO_BUILD_TARGET;
                     SKYLINE_ADD_NRO_HEADER = "1";
                   }
                   // (builtins.removeAttrs (args.env or { }) [
@@ -229,29 +221,19 @@
                     "SKYLINE_ADD_NRO_HEADER"
                   ]);
 
-                overrideMain =
-                  old:
-                  ((args.overrideMain or (old: old)) (
-                    old
-                    // {
-                      postInstall =
-                        (if (old ? postInstall) && (old.postInstall != false) then old.postInstall else "")
-                        + (pkgs.lib.optionalString copyLibs ''
-                          cd $out/lib
-                          for f in *.so; do
-                            ${self.packages.${system}.linkle}/bin/linkle nro $f ''${f%.so}.nro
-                            rm $f
-                          done
-                        '');
-                    }
-                  ));
+                postInstall = ''
+                  cd $out/lib
+                  for f in *.so; do
+                    ${self.packages.${system}.linkle}/bin/linkle nro $f ''${f%.so}.nro
+                    rm $f
+                  done
+                '';
               }
               // (builtins.removeAttrs args [
                 "pname"
                 "version"
                 "src"
                 "copyLibs"
-                "additionalCargoLock"
                 "cargoBuildOptions"
                 "gitSubmodules"
                 "env"
