@@ -219,6 +219,8 @@
               ...
             }:
             {
+              inherit craneSkyline;
+
               mkNroPackage =
                 {
                   pname,
