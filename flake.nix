@@ -6,7 +6,7 @@
 
     fenix.url = "github:nix-community/fenix";
 
-    crane.url = "github:ipetkov/crane/v0.23.0";
+    crane.url = "github:ipetkov/crane";
 
     cargo-skyline-src = {
       url = "github:jam1garner/cargo-skyline";
@@ -52,8 +52,8 @@
                 src = pkgs.fetchFromGitHub {
                   owner = "skyline-rs";
                   repo = "rust-src";
-                  rev = "3848adbb6115f80702ff9d2b88a17288937db3db"; # branch `skyline`
-                  hash = "sha256-TV/6msvxna7WzSflAAq2C6fz5mnah6pbIbOI2MXxrRs=";
+                  rev = "fabcf8e5bebc0d31e33717778a89df97d2b0e443"; # branch `skyline`
+                  hash = "sha256-qqirGdecA422LKkvnsFHA3wYOSFD1pI4VU3l/1d3hSU=";
                   fetchSubmodules = true;
                 };
               }
@@ -64,8 +64,8 @@
 
           skylineBaseToolchain = pkgs.fenix.toolchainOf {
             channel = "nightly";
-            date = "2024-10-09"; # date of last bors commit to `skyline` branch
-            sha256 = "sha256-NUQz7n8uyR/O+DE5DsgEupEiJsU8YeVHuKuPd5TCJ3E=";
+            date = "2026-02-14"; # date of last bors commit to `skyline` branch
+            sha256 = "sha256-i/aBcSbTTfandbTQhccx7EFU6T52bSWZjmwrSEuFvEo=";
           };
 
           skylineToolchain = pkgs.fenix.combine (
@@ -103,7 +103,7 @@
               "arch": "aarch64",
               "crt-static-default": false,
               "crt-static-respected": false,
-              "data-layout": "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+              "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
               "dynamic-linking": true,
               "executables": true,
               "has-rpath": false,
@@ -112,6 +112,9 @@
               "llvm-target": "aarch64-unknown-none",
               "max-atomic-width": 128,
               "os": "switch",
+              "target-family": null,
+              "env": "",
+              "disable-redzone": true,
               "panic-strategy": "abort",
               "position-independent-executables": true,
               "pre-link-args": {
@@ -131,7 +134,8 @@
               "relro-level": "off",
               "target-c-int-width": 32,
               "target-endian": "little",
-              "target-pointer-width": "64",
+              "target-pointer-width": 64,
+              "features": "+v8a,+neon,+crypto,+crc",
               "vendor": "jam1garner"
             }
           '';
@@ -249,7 +253,7 @@
                     # doesn't work with skyline toolchain
                     doCheck = false;
 
-                    cargoExtraArgs = "--offline --locked -Z build-std=core,alloc,std,panic_abort";
+                    cargoExtraArgs = "--offline --locked -Z build-std=core,alloc,std,panic_abort -Z json-target-spec";
 
                     env = {
                       inherit CARGO_BUILD_TARGET;
