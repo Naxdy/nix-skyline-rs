@@ -167,7 +167,7 @@
     in
     {
       packages = forEachSupportedSystem (
-        { craneStable, ... }:
+        { craneStable, skylineToolchain, ... }:
         {
           cargo-skyline =
             let
@@ -198,6 +198,8 @@
 
               meta.description = "Command line utility for working with Nintendo file formats.";
             };
+
+          toolchain = skylineToolchain;
         }
       );
 
