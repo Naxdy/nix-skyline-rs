@@ -281,17 +281,22 @@
                     '';
 
                     env = craneArgs.env // (args.toplevelEnv or { });
+
+                    passthru = (args.passthru or { }) // {
+                      inherit craneArgs cargoArtifacts;
+                    };
                   }
                   // (builtins.removeAttrs args [
-                    "pname"
-                    "version"
-                    "src"
-                    "copyLibs"
                     "cargoBuildOptions"
-                    "gitSubmodules"
+                    "copyLibs"
                     "env"
+                    "gitSubmodules"
                     "overrideMain"
+                    "passthru"
+                    "pname"
+                    "src"
                     "toplevelEnv"
+                    "version"
                   ])
                 );
             }
